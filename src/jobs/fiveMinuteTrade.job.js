@@ -8,14 +8,17 @@ import BrokerKey from "#models/brokerKey";
 import sequelize from "#configs/database";
 import DailyLevel from "#models/dailyLevel";
 import DailyAsset from "#models/dailyAsset";
+import {
+  getIntradayBalance,
+  getTodaysPnL,
+  placeIntradayOrder,
+} from "#services/angelone";
 import OptionBuffer from "#models/optionBuffer";
+import { getCandles, getMarketData } from "#services/angelone";
 import { computeSignal } from "#services/signal";
 import OptionTradeLog from "#models/optionTradeLog";
 import { getAngelOption } from "#utils/angelInstrument";
-import { getUpstoxOption } from "#utils/upstoxInstrument";
 import { logInfo, logWarn, logError } from "#utils/logger";
-import { getCandles, getMarketData } from "#services/angelone";
-import { getTodaysPnL, placeIntradayOrder } from "#services/angelone";
 
 let keys = [];
 let dailyAsset = null;
@@ -78,13 +81,16 @@ async function exitTrade(key) {
     name = await Asset.findDocById(trade.baseAssetId);
   }
 
-  const symbol = getUpstoxOption(name, trade.strikePrice, trade.direction);
+  const symbol = getAngelOption(name, trade.strikePrice, trade.direction);
 
   const exitOrderData = {
-    instrument_key: symbol.instrument_key,
+    exchange: symbol.exch_seg,
+    transactiontype: "SELL",
+    tradingsymbol: symbol.symbol,
     quantity: trade.quantity,
-    transaction_type: "SELL",
+    apiKey: key.apiKey,
     token: key.token,
+    symboltoken: symbol.token,
   };
 
   await placeIntradayOrder(exitOrderData);
@@ -231,8 +237,6 @@ async function runTradingLogic() {
     levels: dailyLevels,
   });
 
-  console.log(signal, assetPrice, direction);
-
   let symbol, tradingSymbol, ltp;
 
   if (direction) {
@@ -243,12 +247,7 @@ async function runTradingLogic() {
 
     symbol = getAngelOption(dailyAsset.Asset.name, assetPrice, direction);
 
-    tradingSymbol = await getUpstoxOption(
-      dailyAsset.Asset.name,
-      assetPrice,
-      direction,
-    );
-
+    tradingSymbol = symbol;
     const exchangeTokens = {
       [symbol.exch_seg]: [symbol.token],
     };
@@ -257,7 +256,7 @@ async function runTradingLogic() {
     ltp = ltp.data.fetched[0]?.ltp ?? 1000000;
   }
 
-  const response = await Promise.allSettled(
+  await Promise.allSettled(
     keys.map(async (key) => {
       try {
         key.balance = Number(key.balance);
@@ -269,12 +268,14 @@ async function runTradingLogic() {
           token: key.token,
         });
 
-        if (pnl <= -(key.balance * key.lossLimit) / 100) {
+        await getIntradayBalance({ apiKey: key.apiKey, token: key.token });
+
+        if (pnl < -(key.balance * key.lossLimit) / 100) {
           await exitTrade(key);
           key.status = false;
           await key.save();
           return;
-        } else if (pnl >= (key.balance * key.profitLimit) / 100) {
+        } else if (pnl > (key.balance * key.profitLimit) / 100) {
           await exitTrade(key);
           key.status = false;
           await key.save();
@@ -309,11 +310,13 @@ async function runTradingLogic() {
         }
 
         const newOrderData = {
-          instrument_key: tradingSymbol.instrument_key,
+          exchange: tradingSymbol.exch_seg,
+          tradingsymbol: tradingSymbol.symbol,
+          symboltoken: tradingSymbol.token,
           quantity: Math.floor(
             (key.balance * key.usableFund) /
               100 /
-              (tradingSymbol.lot_size * ltp),
+              (tradingSymbol.lotsize * ltp),
           ),
           apiKey: key.apiKey,
           token: key.token,
@@ -324,7 +327,7 @@ async function runTradingLogic() {
           return;
         }
 
-        newOrderData.quantity *= tradingSymbol.lot_size;
+        newOrderData.quantity *= tradingSymbol.lotsize;
 
         await placeIntradayOrder(newOrderData);
 

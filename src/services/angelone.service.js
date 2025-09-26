@@ -24,7 +24,7 @@ export async function getIntradayBalance({
       },
     });
 
-    return res.data?.data?.availableintradaypayin;
+    return res.data?.data?.availablecash;
   } catch (err) {
     console.error(
       "Error fetching Intraday Balance:",
@@ -60,18 +60,19 @@ export async function getTodaysPnL({
     const positions = res.data.data || [];
     if (!positions.length) return 0;
 
-    // Calculate today's PnL
     let totalPnL = 0;
     for (const pos of positions) {
-      // Some contracts have mtom field directly
-      if (pos.mtom) {
-        totalPnL += parseFloat(pos.mtom);
-      } else if (pos.netvalue) {
-        totalPnL += parseFloat(pos.netvalue);
+      if (pos.pnl) {
+        totalPnL += parseFloat(pos.pnl);
+      } else {
+        // fallback manual calc
+        const realised = parseFloat(pos.realised || 0);
+        const unrealised = parseFloat(pos.unrealised || 0);
+        totalPnL += realised + unrealised;
       }
     }
 
-    return Number(totalPnL);
+    return Number(totalPnL.toFixed(2));
   } catch (err) {
     console.error("Error fetching Angel positions:", err.response?.data || err);
     return 0;
