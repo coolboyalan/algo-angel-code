@@ -85,7 +85,7 @@ async function exitTrade(key) {
 
   const exitOrderData = {
     exchange: symbol.exch_seg,
-    transactiontype: "SELL",
+    transaction_type: "SELL",
     tradingsymbol: symbol.symbol,
     quantity: trade.quantity,
     apiKey: key.apiKey,
@@ -256,6 +256,8 @@ async function runTradingLogic() {
     ltp = ltp.data.fetched[0]?.ltp ?? 1000000;
   }
 
+  console.log(signal, assetPrice, direction, candle);
+
   await Promise.allSettled(
     keys.map(async (key) => {
       try {
@@ -267,6 +269,8 @@ async function runTradingLogic() {
           apiKey: key.apiKey,
           token: key.token,
         });
+
+        console.log(key.balance, pnl);
 
         await getIntradayBalance({ apiKey: key.apiKey, token: key.token });
 
@@ -300,6 +304,11 @@ async function runTradingLogic() {
             await exitTrade(key);
             key.status = false;
             await key.save();
+            return;
+          }
+
+          if (signal === "Exit") {
+            await exitTrade(key);
             return;
           }
         }

@@ -121,6 +121,7 @@ export async function placeIntradayOrder({
   };
 
   try {
+    console.log(data);
     const response = await axios.post(`${BASE_URL}/order/v1/placeOrder`, data, {
       headers,
     });

@@ -23,6 +23,7 @@ export function computeSignal({ candle, levels, bufferKey = "buffer" }) {
       signal = "Sell";
     } else if (price < tc && price > bc) {
       signal = "Exit";
+      return { signal, direction, assetPrice }; // 🚨 stop here
     }
   }
 
